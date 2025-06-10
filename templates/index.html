@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #preview, #annotationCanvas, #heatmapCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            transition: transform 0.2s;
+            position: absolute;
+            cursor: move;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .image-container {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1f2937;
+            border-radius: 0.5rem;
+            border: 6px solid #4b5563;
+            box-sizing: border-box;
+            padding: 6px;
+            overflow: hidden;
+        }
+        .placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #9ca3af;
+            text-align: center;
+            font-size: 1.25rem;
+            width: 100%;
+            height: 100%;
+            background-color: #1f2937;
+        }
+        .sidebar {
+            width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .slider-container {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            bottom: 60px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px;
+            border-radius: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 5;
+        }
+        .slice-number {
+            position: absolute;
+            right: 10px;
+            bottom: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 6px 10px;
+            border-radius: 0.5rem;
+            color: white;
+            font-size: 1.125rem;
+            z-index: 10;
+        }
+        .slider {
+            width: 8px;
+            height: 100%;
+            background: #4b5563;
+            border-radius: 4px;
+            appearance: none;
+            cursor: pointer;
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .slice-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 4px;
+        }
+        .slice-buttons.top {
+            margin-bottom: 4px;
+        }
+        .slice-buttons.bottom {
+            margin-top: 4px;
+        }
+        .slice-button {
+            background: #4b5563;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        .slice-button:hover {
+            background: #6b7280;
+        }
+        .disease-display {
+            background: #2d3748;
+            padding: 8px;
+            border-radius: 0.5rem;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+        }
+        .loading {
+            display: none;
+            color: #9ca3af;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+        body {
+            margin: 0;
+        }
+        .main-container {
+            padding-bottom: 12px;
+        }
+        #heatmapCanvas {
+            opacity: 1; /* Full opacity since it replaces the original image */
+            pointer-events: none;
+        }
+        .heatmap-control {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+                margin-top: 1rem;
+            }
+            .image-container {
+                height: 400px;
+                border: 6px solid #4b5563;
+                padding: 5px;
+            }
+            .main-container {
+                padding: 0.5rem;
+                padding-bottom: 10px;
+            }
+            .slider-container {
+                padding: 4px;
+                right: 5px;
+                top: 5px;
+                bottom: 50px;
+            }
+            .slice-number {
+                right: 5px;
+                bottom: 10px;
+                font-size: 0.875rem;
+                padding: 4px 6px;
+                z-index: 10;
+            }
+            .slice-buttons {
+                gap: 2px;
+            }
+            .slice-buttons.top {
+                margin-bottom: 2px;
+            }
+            .slice-buttons.bottom {
+                margin-top: 2px;
+            }
+            .slice-button {
+                padding: 2px 4px;
+                font-size: 0.75rem;
+            }
+            .slider {
+                width: 6px;
+            }
+            .disease-display {
+                font-size: 0.75rem;
+                padding: 6px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-start justify-center">
+    <div class="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6 main-container">
+        <h1 class="text-3xl font-bold mb-4 text-center">Chest X-ray Disease Detection</h1>
+
+        <div class="space-y-4">
+            <!-- File Upload -->
+            <input type="file" id="dicomFile" accept=".dcm,.jpg,.jpeg,.png" 
+                   class="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 
+                          file:rounded-md file:border-0 file:text-sm file:font-semibold 
+                          file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer">
+
+            <!-- Image and Sidebar Container -->
+            <div class="flex flex-col md:flex-row gap-4">
+                <!-- Image Display and Slice Controls -->
+                <div class="flex-1">
+                    <!-- Previous/Next Buttons (Top) -->
+                    <div id="sliceButtonsTop" class="slice-buttons top hidden">
+                        <button id="prevSliceTop" class="slice-button">Prev</button>
+                        <button id="nextSliceTop" class="slice-button">Next</button>
+                    </div>
+                    <div class="image-container" id="imageContainer">
+                        <div class="placeholder" id="placeholder">
+                            <svg class="w-16 h-16 mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <p>Upload a DICOM, JPEG, or PNG file</p>
+                        </div>
+                        <img id="preview" src="" alt="Image Preview" class="hidden">
+                        <canvas id="annotationCanvas" class="hidden"></canvas>
+                        <canvas id="heatmapCanvas" class="hidden"></canvas>
+                        <div id="sliceControls" class="hidden slider-container">
+                            <input type="range" id="sliceSlider" min="0" max="0" value="0" class="slider">
+                        </div>
+                        <span id="sliceNumberDisplay" class="slice-number hidden">
+                            Slice: <span id="sliceNumber">1</span> / <span id="totalSlices">1</span>
+                        </span>
+                    </div>
+                    <!-- Previous/Next Buttons (Bottom) -->
+                    <div id="sliceButtonsBottom" class="slice-buttons bottom hidden">
+                        <button id="prevSliceBottom" class="slice-button">Prev</button>
+                        <button id="nextSliceBottom" class="slice-button">Next</button>
+                    </div>
+                </div>
+
+                <!-- Sidebar with Manipulation Buttons and Disease Display -->
+                <div class="sidebar">
+                    <div id="loading" class="loading">Predicting...</div>
+                    <div id="diseaseDisplay" class="disease-display hidden">
+                        <p class="font-semibold">Detected Diseases:</p>
+                        <ul id="diseaseList" class="list-disc pl-4"></ul>
+                    </div>
+                    <div id="heatmapControl" class="heatmap-control hidden">
+                        <button id="toggleHeatmap" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                            Show Heatmap
+                        </button>
+                    </div>
+                    <button id="zoomIn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Zoom In
+                    </button>
+                    <button id="zoomOut" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Zoom Out
+                    </button>
+                    <button id="togglePan" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Toggle Pan
+                    </button>
+                    <button id="rotate" class="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Rotate 90°
+                    </button>
+                    <button id="toggleAnnotate" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Toggle Annotate
+                    </button>
+                    <button id="reset" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md text-sm">
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentFilename = null;
+        let numSlices = 1;
+        let currentSlice = 0;
+        let scale = 1;
+        let translateX = 0;
+        let translateY = 0;
+        let rotation = 0;
+        let isPanning = false;
+        let isAnnotating = false;
+        let isDrawing = false;
+        let isHeatmapVisible = false;
+        let startX, startY;
+        let isDicom = false;
+        let detectedDiseases = [];
+
+        const preview = document.getElementById('preview');
+        const placeholder = document.getElementById('placeholder');
+        const annotationCanvas = document.getElementById('annotationCanvas');
+        const heatmapCanvas = document.getElementById('heatmapCanvas');
+        const ctx = annotationCanvas.getContext('2d');
+        const heatmapCtx = heatmapCanvas.getContext('2d');
+        const sliceSlider = document.getElementById('sliceSlider');
+        const sliceNumber = document.getElementById('sliceNumber');
+        const totalSlices = document.getElementById('totalSlices');
+        const sliceControls = document.getElementById('sliceControls');
+        const sliceNumberDisplay = document.getElementById('sliceNumberDisplay');
+        const sliceButtonsTop = document.getElementById('sliceButtonsTop');
+        const sliceButtonsBottom = document.getElementById('sliceButtonsBottom');
+        const prevSliceTopBtn = document.getElementById('prevSliceTop');
+        const nextSliceTopBtn = document.getElementById('nextSliceTop');
+        const prevSliceBottomBtn = document.getElementById('prevSliceBottom');
+        const nextSliceBottomBtn = document.getElementById('nextSliceBottom');
+        const imageContainer = document.getElementById('imageContainer');
+        const diseaseDisplay = document.getElementById('diseaseDisplay');
+        const diseaseList = document.getElementById('diseaseList');
+        const loading = document.getElementById('loading');
+        const toggleHeatmapBtn = document.getElementById('toggleHeatmap');
+        const heatmapControl = document.getElementById('heatmapControl');
+
+        // Update image, annotation, and heatmap transform
+        function updateTransform() {
+            const transform = `translate(-50%, -50%) translate(${translateX}px, ${translateY}px) scale(${scale}) rotate(${rotation}deg)`;
+            preview.style.transform = transform;
+            annotationCanvas.style.transform = transform;
+            heatmapCanvas.style.transform = transform;
+        }
+
+        // Resize canvases to match image container
+        function resizeCanvases() {
+            const container = document.getElementById('imageContainer');
+            annotationCanvas.width = container.clientWidth - 12; // Account for 6px border
+            annotationCanvas.height = container.clientHeight - 12;
+            heatmapCanvas.width = container.clientWidth - 12;
+            heatmapCanvas.height = container.clientHeight - 12;
+            clearAnnotations();
+            updateHeatmap();
+        }
+
+        // Clear annotations
+        function clearAnnotations() {
+            ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+        }
+
+        // Update heatmap display
+        function updateHeatmap() {
+            // Clear the canvas to remove any previous heatmap
+            heatmapCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+            
+            if (isHeatmapVisible && currentFilename && detectedDiseases.length > 0) {
+                // Set canvas dimensions
+                const container = document.getElementById('imageContainer');
+                heatmapCanvas.width = container.clientWidth - 12;
+                heatmapCanvas.height = container.clientHeight - 12;
+                
+                // Hide original image and show heatmap canvas
+                preview.classList.add('hidden');
+                heatmapCanvas.classList.remove('hidden');
+                
+                const heatmapSrc = `/explain/${currentFilename}/${currentSlice}`;
+                const img = new Image();
+                img.src = heatmapSrc;
+                img.onload = () => {
+                    heatmapCtx.drawImage(img, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
+                };
+                img.onerror = () => {
+                    console.error('Failed to load heatmap image:', heatmapSrc);
+                };
+            } else {
+                // Show original image and hide heatmap canvas
+                preview.classList.remove('hidden');
+                heatmapCanvas.classList.add('hidden');
+            }
+        }
+
+        // Load new slice
+        function loadSlice(sliceIndex) {
+            if (sliceIndex < 0 || sliceIndex >= numSlices) return;
+            currentSlice = sliceIndex;
+            sliceSlider.value = numSlices - 1 - sliceIndex;
+            sliceNumber.textContent = sliceIndex + 1;
+            preview.src = `/get_slice/${currentFilename}/${sliceIndex}`;
+            clearAnnotations();
+            updateHeatmap();
+            updateTransform();
+        }
+
+        // Reset transformations
+        function resetTransformations() {
+            scale = 1;
+            translateX = 0;
+            translateY = 0;
+            rotation = 0;
+            isPanning = false;
+            isAnnotating = false;
+            isHeatmapVisible = false;
+            preview.style.cursor = 'move';
+            annotationCanvas.style.cursor = 'move';
+            heatmapCanvas.style.cursor = 'move';
+            toggleHeatmapBtn.textContent = 'Show Heatmap';
+            preview.classList.remove('hidden');
+            heatmapCanvas.classList.add('hidden');
+            clearAnnotations();
+            updateHeatmap();
+            updateTransform();
+        }
+
+        // File upload handler
+        document.getElementById('dicomFile').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loading.style.display = 'block';
+            diseaseDisplay.classList.add('hidden');
+            heatmapControl.classList.add('hidden');
+            diseaseList.innerHTML = '';
+            detectedDiseases = [];
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                // Step 1: Upload and display image
+                const uploadResponse = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!uploadResponse.ok) throw new Error('Upload failed');
+                const uploadData = await uploadResponse.json();
+                if (uploadData.error) throw new Error(uploadData.error);
+
+                resetTransformations();
+                placeholder.classList.add('hidden');
+                preview.src = uploadData.initial_image;
+                preview.classList.remove('hidden');
+                annotationCanvas.classList.remove('hidden');
+                heatmapCanvas.classList.add('hidden');
+                imageContainer.style.backgroundColor = '#000000';
+                resizeCanvases();
+
+                numSlices = uploadData.num_slices;
+                isDicom = uploadData.is_dicom;
+                currentFilename = uploadData.filename;
+                currentSlice = 0;
+
+                totalSlices.textContent = numSlices;
+                sliceNumber.textContent = 1;
+                sliceSlider.max = numSlices - 1;
+                sliceSlider.value = numSlices - 1;
+                sliceControls.classList.toggle('hidden', !isDicom || numSlices === 1);
+                sliceNumberDisplay.classList.toggle('hidden', !isDicom || numSlices === 1);
+                sliceButtonsTop.classList.toggle('hidden', !isDicom || numSlices === 1);
+                sliceButtonsBottom.classList.toggle('hidden', !isDicom || numSlices === 1);
+
+                // Step 2: Trigger prediction
+                const predictResponse = await fetch(`/predict/${currentFilename}`);
+                if (!predictResponse.ok) throw new Error('Prediction failed');
+                const predictData = await predictResponse.json();
+                console.log('Predict response:', predictData);
+                if (predictData.error) throw new Error(predictData.error);
+
+                if (predictData.message) {
+                    const li = document.createElement('li');
+                    li.textContent = predictData.message;
+                    diseaseDisplay.classList.remove('hidden');
+                    diseaseList.appendChild(li);
+                } else if (predictData.diseases && predictData.diseases.length > 0) {
+                    predictData.diseases.forEach(disease => {
+                        const li = document.createElement('li');
+                        li.textContent = `${disease.disease} (${(disease.probability * 100).toFixed(1)}%)`;
+                        diseaseList.appendChild(li);
+                        detectedDiseases.push(disease);
+                    });
+                    diseaseDisplay.classList.remove('hidden');
+                    heatmapControl.classList.remove('hidden');
+                    updateHeatmap();
+                } else {
+                    const li = document.createElement('li');
+                    li.textContent = 'No diseases detected';
+                    diseaseList.appendChild(li);
+                    diseaseDisplay.classList.remove('hidden');
+                }
+
+                loading.style.display = 'none';
+            } catch (error) {
+                loading.style.display = 'none';
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        });
+
+        // Slice navigation
+        sliceSlider.addEventListener('input', function(e) {
+            const invertedIndex = numSlices - 1 - parseInt(e.target.value);
+            loadSlice(invertedIndex);
+        });
+
+        prevSliceTopBtn.addEventListener('click', () => {
+            if (currentSlice > 0) loadSlice(currentSlice - 1);
+        });
+
+        nextSliceTopBtn.addEventListener('click', () => {
+            if (currentSlice < numSlices - 1) loadSlice(currentSlice + 1);
+        });
+
+        prevSliceBottomBtn.addEventListener('click', () => {
+            if (currentSlice > 0) loadSlice(currentSlice - 1);
+        });
+
+        nextSliceBottomBtn.addEventListener('click', () => {
+            if (currentSlice < numSlices - 1) loadSlice(currentSlice + 1);
+        });
+
+        // Scroll to change slices
+        function handleWheel(e) {
+            if (!isDicom || numSlices === 1) return;
+            e.preventDefault();
+            const delta = Math.sign(e.deltaY);
+            const newSlice = currentSlice + delta;
+            loadSlice(newSlice);
+        }
+
+        preview.addEventListener('wheel', handleWheel);
+        annotationCanvas.addEventListener('wheel', handleWheel);
+        heatmapCanvas.addEventListener('wheel', handleWheel);
+
+        // Zoom controls
+        document.getElementById('zoomIn').addEventListener('click', () => {
+            scale = Math.min(scale + 0.2, 3);
+            updateTransform();
+        });
+
+        document.getElementById('zoomOut').addEventListener('click', () => {
+            scale = Math.max(scale - 0.2, 0.5);
+            updateTransform();
+        });
+
+        // Pan controls
+        document.getElementById('togglePan').addEventListener('click', () => {
+            isPanning = !isPanning;
+            isAnnotating = false;
+            preview.style.cursor = isPanning ? 'grab' : 'move';
+            annotationCanvas.style.cursor = isPanning ? 'grab' : 'move';
+            heatmapCanvas.style.cursor = isPanning ? 'grab' : 'move';
+            document.getElementById('togglePan').textContent = isPanning ? 'Disable Pan' : 'Toggle Pan';
+            document.getElementById('toggleAnnotate').textContent = 'Toggle Annotate';
+            updateTransform();
+        });
+
+        preview.addEventListener('mousedown', (e) => {
+            if (isPanning) {
+                e.preventDefault();
+                startX = e.clientX - translateX;
+                startY = e.clientY - translateY;
+                preview.style.cursor = 'grabbing';
+                annotationCanvas.style.cursor = 'grabbing';
+                heatmapCanvas.style.cursor = 'grabbing';
+                const onMouseMovePan = (e) => {
+                    translateX = e.clientX - startX;
+                    translateY = e.clientY - startY;
+                    updateTransform();
+                };
+                preview.addEventListener('mousemove', onMouseMovePan);
+                const stopPanning = () => {
+                    preview.removeEventListener('mousemove', onMouseMovePan);
+                    if (isPanning) {
+                        preview.style.cursor = 'grab';
+                        annotationCanvas.style.cursor = 'grab';
+                        heatmapCanvas.style.cursor = 'grab';
+                    }
+                };
+                preview.addEventListener('mouseup', stopPanning, { once: true });
+                preview.addEventListener('mouseleave', stopPanning, { once: true });
+            }
+        });
+
+        // Annotation controls
+        document.getElementById('toggleAnnotate').addEventListener('click', () => {
+            isAnnotating = !isAnnotating;
+            isPanning = false;
+            preview.style.cursor = isAnnotating ? 'crosshair' : 'move';
+            annotationCanvas.style.cursor = isAnnotating ? 'crosshair' : 'move';
+            heatmapCanvas.style.cursor = isAnnotating ? 'crosshair' : 'move';
+            document.getElementById('toggleAnnotate').textContent = isAnnotating ? 'Disable Annotate' : 'Toggle Annotate';
+            document.getElementById('togglePan').textContent = 'Toggle Pan';
+            clearAnnotations();
+            updateTransform();
+        });
+
+        annotationCanvas.addEventListener('mousedown', (e) => {
+            if (!isAnnotating) return;
+            e.preventDefault();
+            isDrawing = true;
+            const rect = annotationCanvas.getBoundingClientRect();
+            ctx.beginPath();
+            ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+        });
+
+        annotationCanvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing || !isAnnotating) return;
+            const rect = annotationCanvas.getBoundingClientRect();
+            ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            ctx.stroke();
+        });
+
+        annotationCanvas.addEventListener('mouseup', () => {
+            isDrawing = false;
+            ctx.closePath();
+        });
+
+        annotationCanvas.addEventListener('mouseleave', () => {
+            isDrawing = false;
+            ctx.closePath();
+        });
+
+        // Heatmap controls
+        toggleHeatmapBtn.addEventListener('click', () => {
+            isHeatmapVisible = !isHeatmapVisible;
+            toggleHeatmapBtn.textContent = isHeatmapVisible ? 'Hide Heatmap' : 'Show Heatmap';
+            updateHeatmap();
+        });
+
+        // Rotate control
+        document.getElementById('rotate').addEventListener('click', () => {
+            rotation = (rotation + 90) % 360;
+            updateTransform();
+        });
+
+        // Reset control
+        document.getElementById('reset').addEventListener('click', () => {
+            resetTransformations();
+        });
+
+        // Resize canvases on window resize
+        window.addEventListener('resize', resizeCanvases);
+    </script>
+</body>
+</html>
